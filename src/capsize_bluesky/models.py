@@ -18,3 +18,13 @@ class ProfileStats:
     followers_count: int
     follows_count: int
     posts_count: int
+
+
+@dataclass(frozen=True)
+class PostRecord:
+    """One of this account's own posts, as stored in its repo."""
+
+    uri: str
+    cid: str
+    text: str
+    created_at: str

@@ -9,11 +9,16 @@ session in memory for as long as the caller keeps the instance around.
 from atproto import Client
 from atproto_client.exceptions import AtProtocolError, UnauthorizedError
 from atproto_client.models.app.bsky.actor.defs import ProfileViewDetailed
+from atproto_client.models.com.atproto.repo.list_records import (
+    Record as ListRecordsRecord,
+)
 
 from capsize_bluesky.exceptions import BlueskyAPIError, BlueskyAuthError
-from capsize_bluesky.models import ProfileStats
+from capsize_bluesky.models import PostRecord, ProfileStats
 
 DEFAULT_SERVICE = "https://bsky.social"
+_POSTS_COLLECTION = "app.bsky.feed.post"
+_LIST_PAGE_SIZE = 100
 
 
 def _authenticate(
@@ -38,6 +43,16 @@ def _to_profile_stats(profile: ProfileViewDetailed) -> ProfileStats:
         followers_count=profile.followers_count or 0,
         follows_count=profile.follows_count or 0,
         posts_count=profile.posts_count or 0,
+    )
+
+
+def _to_post_record(record: ListRecordsRecord) -> PostRecord:
+    value = record.value
+    return PostRecord(
+        uri=str(record.uri),
+        cid=str(record.cid),
+        text=str(value.text),
+        created_at=str(value.created_at),
     )
 
 
@@ -67,17 +82,49 @@ class BlueskyAccountClient:
         if not self._logged_in:
             raise BlueskyAuthError("Not logged in - call login() first")
 
-    def profile_stats(self, actor: str | None = None) -> ProfileStats:
-        """Fetch follower/follows/post counts for `actor`, or self."""
-        self._require_login()
+    def _resolve_target(self, actor: str | None) -> str:
         target = actor or (self._client.me.did if self._client.me else None)
         if target is None:
             raise BlueskyAuthError("No actor given and no session identity")
+        return target
+
+    def profile_stats(self, actor: str | None = None) -> ProfileStats:
+        """Fetch follower/follows/post counts for `actor`, or self."""
+        self._require_login()
+        target = self._resolve_target(actor)
         try:
             profile = self._client.get_profile(target)
         except AtProtocolError as exc:
             raise BlueskyAPIError(str(exc)) from exc
         return _to_profile_stats(profile)
+
+    def list_posts(
+        self,
+        actor: str | None = None,
+        cursor: str | None = None,
+        limit: int = _LIST_PAGE_SIZE,
+    ) -> tuple[list[PostRecord], str | None]:
+        """Return one page of `actor`'s (or self's) own post records.
+
+        Reads directly from the account's repo (`listRecords`), not the
+        `getAuthorFeed` view - every post it ever made, in creation
+        order, with no feed-algorithm filtering in the way.
+        """
+        self._require_login()
+        target = self._resolve_target(actor)
+        try:
+            response = self._client.com.atproto.repo.list_records(
+                {
+                    "repo": target,
+                    "collection": _POSTS_COLLECTION,
+                    "cursor": cursor,
+                    "limit": limit,
+                }
+            )
+        except AtProtocolError as exc:
+            raise BlueskyAPIError(str(exc)) from exc
+        records = [_to_post_record(r) for r in response.records]
+        return records, response.cursor
 
     def create_post(self, text: str) -> str:
         """Publish a text post. Returns the created record's AT URI."""

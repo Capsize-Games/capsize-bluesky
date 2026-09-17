@@ -139,6 +139,95 @@ def test_create_post_requires_login(mock_client_cls: MagicMock) -> None:
         client.create_post("hello world")
 
 
+def _fake_record(text: str, uri: str, cid: str = "cid1") -> MagicMock:
+    record = MagicMock()
+    record.uri = uri
+    record.cid = cid
+    record.value.text = text
+    record.value.created_at = "2026-01-01T00:00:00Z"
+    return record
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_returns_records_and_cursor(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.list_records.return_value = MagicMock(
+        records=[
+            _fake_record("hello", "at://did:plc:self/app.bsky.feed.post/1"),
+            _fake_record("world", "at://did:plc:self/app.bsky.feed.post/2"),
+        ],
+        cursor="next-page",
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    posts, cursor = client.list_posts()
+
+    assert [p.text for p in posts] == ["hello", "world"]
+    assert cursor == "next-page"
+    mock_client.com.atproto.repo.list_records.assert_called_once_with(
+        {
+            "repo": "did:plc:self",
+            "collection": "app.bsky.feed.post",
+            "cursor": None,
+            "limit": 100,
+        }
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_requires_login(mock_client_cls: MagicMock) -> None:
+    mock_client_cls.return_value = MagicMock()
+    client = BlueskyAccountClient()
+    with pytest.raises(BlueskyAuthError):
+        client.list_posts()
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_passes_through_cursor(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.com.atproto.repo.list_records.return_value = MagicMock(
+        records=[], cursor=None
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    posts, cursor = client.list_posts(
+        actor="did:plc:other", cursor="page-2"
+    )
+
+    assert posts == []
+    assert cursor is None
+    mock_client.com.atproto.repo.list_records.assert_called_once_with(
+        {
+            "repo": "did:plc:other",
+            "collection": "app.bsky.feed.post",
+            "cursor": "page-2",
+            "limit": 100,
+        }
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_wraps_api_errors(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.list_records.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    with pytest.raises(BlueskyAPIError):
+        client.list_posts()
+
+
 @patch("capsize_bluesky.client.Client")
 def test_resolve_handle(mock_client_cls: MagicMock) -> None:
     mock_client = MagicMock()
