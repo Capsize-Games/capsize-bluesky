@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from atproto_client.exceptions import BadRequestError, UnauthorizedError
+from atproto_client.models.blob_ref import BlobRef
 
 from capsize_bluesky import (
     BlueskyAccountClient,
@@ -477,6 +478,40 @@ def test_update_profile_wraps_api_errors(mock_client_cls: MagicMock) -> None:
     client.login("alice.bsky.social", "app-password")
     with pytest.raises(BlueskyAPIError):
         client.update_profile(description="new bio")
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_sets_avatar(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.get_record.side_effect = BadRequestError()
+    fake_blob = BlobRef(mimeType="image/png", size=3, ref="fake-ref")
+    mock_client.upload_blob.return_value = MagicMock(blob=fake_blob)
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    client.update_profile(avatar=b"fake-png-bytes")
+
+    mock_client.upload_blob.assert_called_once_with(b"fake-png-bytes")
+    call_args = mock_client.com.atproto.repo.put_record.call_args[0][0]
+    assert call_args["record"].avatar is fake_blob
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_avatar_upload_wraps_api_errors(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.get_record.side_effect = BadRequestError()
+    mock_client.upload_blob.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    with pytest.raises(BlueskyAPIError):
+        client.update_profile(avatar=b"fake-png-bytes")
 
 
 @patch("capsize_bluesky.client.Client")
