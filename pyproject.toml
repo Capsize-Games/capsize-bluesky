@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capsize-bluesky"
+version = "0.1.0"
+description = "Bluesky (AT Protocol) app-password client: login, profile stats, and posting, with no database or web-framework assumptions."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Capsize LLC", email = "contact@capsizegames.com" },
+]
+keywords = [
+    "bluesky",
+    "atproto",
+    "at-protocol",
+    "social-media",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet",
+    "Typing :: Typed",
+]
+dependencies = [
+    "atproto>=0.0.55",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/capsize-games/capsize-bluesky"
+Issues = "https://github.com/capsize-games/capsize-bluesky/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+capsize_bluesky = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
