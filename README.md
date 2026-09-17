@@ -27,11 +27,12 @@ from capsize_bluesky import BlueskyAccountClient, BlueskyAuthError
 client = BlueskyAccountClient()  # defaults to https://bsky.social
 
 try:
-    client.login("alice.bsky.social", app_password)
+    stats = client.login("alice.bsky.social", app_password)
 except BlueskyAuthError:
     ...  # bad handle / app password
 
-stats = client.profile_stats()
+# login() already returns profile stats from the PDS's login response;
+# call profile_stats() again later only when you need a fresh count.
 print(stats.followers_count, stats.follows_count, stats.posts_count)
 
 client.create_post("Hello, Bluesky!")

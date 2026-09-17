@@ -24,13 +24,32 @@ def _fake_profile(**overrides: object) -> MagicMock:
 
 
 @patch("capsize_bluesky.client.Client")
-def test_login_success(mock_client_cls: MagicMock) -> None:
-    mock_client_cls.return_value = MagicMock()
+def test_login_returns_profile_stats(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.login.return_value = _fake_profile()
+    mock_client_cls.return_value = mock_client
+
     client = BlueskyAccountClient()
-    client.login("alice.bsky.social", "app-password")
-    client._client.login.assert_called_once_with(
+    stats = client.login("alice.bsky.social", "app-password")
+
+    mock_client.login.assert_called_once_with(
         "alice.bsky.social", "app-password"
     )
+    assert stats is not None
+    assert stats.handle == "alice.bsky.social"
+    assert stats.followers_count == 42
+
+
+@patch("capsize_bluesky.client.Client")
+def test_login_returns_none_without_profile(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.login.return_value = None
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    assert client.login("alice.bsky.social", "app-password") is None
 
 
 @patch("capsize_bluesky.client.Client")

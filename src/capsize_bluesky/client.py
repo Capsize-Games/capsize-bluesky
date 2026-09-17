@@ -8,11 +8,23 @@ session in memory for as long as the caller keeps the instance around.
 
 from atproto import Client
 from atproto_client.exceptions import AtProtocolError, UnauthorizedError
+from atproto_client.models.app.bsky.actor.defs import ProfileViewDetailed
 
 from capsize_bluesky.exceptions import BlueskyAPIError, BlueskyAuthError
 from capsize_bluesky.models import ProfileStats
 
 DEFAULT_SERVICE = "https://bsky.social"
+
+
+def _to_profile_stats(profile: ProfileViewDetailed) -> ProfileStats:
+    return ProfileStats(
+        did=profile.did,
+        handle=profile.handle,
+        display_name=profile.display_name,
+        followers_count=profile.followers_count or 0,
+        follows_count=profile.follows_count or 0,
+        posts_count=profile.posts_count or 0,
+    )
 
 
 class BlueskyAccountClient:
@@ -23,14 +35,23 @@ class BlueskyAccountClient:
         self._client = Client(base_url=service)
         self._logged_in = False
 
-    def login(self, handle: str, app_password: str) -> None:
-        """Authenticate with an app password (not the account's main password).
+    def login(
+        self, handle: str, app_password: str
+    ) -> ProfileStats | None:
+        """Authenticate with an app password, not the account's password.
 
-        Raises BlueskyAuthError if the handle/app-password pair is rejected,
-        or BlueskyAPIError for any other failure (network, rate limit, ...).
+        Returns the account's own profile stats, since the PDS includes
+        them in the login response by default — callers that only need
+        did/handle/counts right after logging in can skip a second
+        `profile_stats()` round-trip. Returns None only if the PDS omits
+        the profile (never happens with default settings).
+
+        Raises BlueskyAuthError if the handle/app-password pair is
+        rejected, or BlueskyAPIError for any other failure (network,
+        rate limit, ...).
         """
         try:
-            self._client.login(handle, app_password)
+            profile = self._client.login(handle, app_password)
         except UnauthorizedError as exc:
             raise BlueskyAuthError(
                 f"Invalid handle or app password for {handle!r}"
@@ -38,6 +59,7 @@ class BlueskyAccountClient:
         except AtProtocolError as exc:
             raise BlueskyAPIError(str(exc)) from exc
         self._logged_in = True
+        return _to_profile_stats(profile) if profile else None
 
     def _require_login(self) -> None:
         if not self._logged_in:
@@ -53,14 +75,7 @@ class BlueskyAccountClient:
             profile = self._client.get_profile(target)
         except AtProtocolError as exc:
             raise BlueskyAPIError(str(exc)) from exc
-        return ProfileStats(
-            did=profile.did,
-            handle=profile.handle,
-            display_name=profile.display_name,
-            followers_count=profile.followers_count or 0,
-            follows_count=profile.follows_count or 0,
-            posts_count=profile.posts_count or 0,
-        )
+        return _to_profile_stats(profile)
 
     def create_post(self, text: str) -> str:
         """Publish a text post. Returns the created record's AT URI."""
