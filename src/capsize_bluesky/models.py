@@ -28,3 +28,15 @@ class PostRecord:
     cid: str
     text: str
     created_at: str
+    # Set when this post is a reply - the AT-URI of the post it replied
+    # to, for resolving that surrounding context separately.
+    reply_parent_uri: str | None = None
+
+
+@dataclass(frozen=True)
+class RepostRecord:
+    """One of this account's own reposts, as stored in its repo."""
+
+    uri: str
+    subject_uri: str
+    created_at: str

@@ -11,6 +11,8 @@ from capsize_bluesky import (
     BlueskyAuthError,
 )
 
+_POST_URI = "at://did:plc:self/app.bsky.feed.post/1"
+
 
 def _fake_profile(**overrides: object) -> MagicMock:
     profile = MagicMock()
@@ -139,11 +141,28 @@ def test_create_post_requires_login(mock_client_cls: MagicMock) -> None:
         client.create_post("hello world")
 
 
-def _fake_record(text: str, uri: str, cid: str = "cid1") -> MagicMock:
+def _fake_record(
+    text: str,
+    uri: str,
+    cid: str = "cid1",
+    reply_parent_uri: str | None = None,
+) -> MagicMock:
     record = MagicMock()
     record.uri = uri
     record.cid = cid
     record.value.text = text
+    record.value.created_at = "2026-01-01T00:00:00Z"
+    if reply_parent_uri is None:
+        record.value.reply = None
+    else:
+        record.value.reply.parent.uri = reply_parent_uri
+    return record
+
+
+def _fake_repost_record(uri: str, subject_uri: str) -> MagicMock:
+    record = MagicMock()
+    record.uri = uri
+    record.value.subject.uri = subject_uri
     record.value.created_at = "2026-01-01T00:00:00Z"
     return record
 
@@ -226,6 +245,167 @@ def test_list_posts_wraps_api_errors(mock_client_cls: MagicMock) -> None:
     client.login("alice.bsky.social", "app-password")
     with pytest.raises(BlueskyAPIError):
         client.list_posts()
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_captures_reply_parent_uri(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    parent_uri = "at://did:plc:other/app.bsky.feed.post/9"
+    mock_client.com.atproto.repo.list_records.return_value = MagicMock(
+        records=[
+            _fake_record(
+                "a reply", _POST_URI, reply_parent_uri=parent_uri
+            )
+        ],
+        cursor=None,
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    posts, _ = client.list_posts()
+
+    assert posts[0].reply_parent_uri == parent_uri
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_posts_non_reply_has_no_parent_uri(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.list_records.return_value = MagicMock(
+        records=[_fake_record("original", _POST_URI)], cursor=None
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    posts, _ = client.list_posts()
+
+    assert posts[0].reply_parent_uri is None
+
+
+@patch("capsize_bluesky.client.Client")
+def test_list_reposts_returns_records_and_cursor(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.list_records.return_value = MagicMock(
+        records=[
+            _fake_repost_record(
+                "at://did:plc:self/app.bsky.feed.repost/1",
+                "at://did:plc:other/app.bsky.feed.post/5",
+            )
+        ],
+        cursor="next-page",
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    reposts, cursor = client.list_reposts()
+
+    assert reposts[0].subject_uri == "at://did:plc:other/app.bsky.feed.post/5"
+    assert cursor == "next-page"
+    mock_client.com.atproto.repo.list_records.assert_called_once_with(
+        {
+            "repo": "did:plc:self",
+            "collection": "app.bsky.feed.repost",
+            "cursor": None,
+            "limit": 100,
+        }
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_get_post_returns_record(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    response = MagicMock()
+    response.uri = _POST_URI
+    response.cid = "cid1"
+    response.value.text = "hello"
+    response.value.created_at = "2026-01-01T00:00:00Z"
+    response.value.reply = None
+    mock_client.com.atproto.repo.get_record.return_value = response
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    post = client.get_post(_POST_URI)
+
+    assert post is not None
+    assert post.text == "hello"
+    mock_client.com.atproto.repo.get_record.assert_called_once_with(
+        {
+            "repo": "did:plc:self",
+            "collection": "app.bsky.feed.post",
+            "rkey": "1",
+        }
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_get_post_returns_none_when_unavailable(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.com.atproto.repo.get_record.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    assert client.get_post(_POST_URI) is None
+
+
+@patch("capsize_bluesky.client.Client")
+def test_get_post_requires_login(mock_client_cls: MagicMock) -> None:
+    mock_client_cls.return_value = MagicMock()
+    client = BlueskyAccountClient()
+    with pytest.raises(BlueskyAuthError):
+        client.get_post(_POST_URI)
+
+
+@patch("capsize_bluesky.client.Client")
+def test_delete_post_calls_delete_record(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    client.delete_post(_POST_URI)
+
+    mock_client.com.atproto.repo.delete_record.assert_called_once_with(
+        {
+            "repo": "did:plc:self",
+            "collection": "app.bsky.feed.post",
+            "rkey": "1",
+        }
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_delete_post_requires_login(mock_client_cls: MagicMock) -> None:
+    mock_client_cls.return_value = MagicMock()
+    client = BlueskyAccountClient()
+    with pytest.raises(BlueskyAuthError):
+        client.delete_post(_POST_URI)
+
+
+@patch("capsize_bluesky.client.Client")
+def test_delete_post_wraps_api_errors(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.com.atproto.repo.delete_record.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    with pytest.raises(BlueskyAPIError):
+        client.delete_post(_POST_URI)
 
 
 @patch("capsize_bluesky.client.Client")

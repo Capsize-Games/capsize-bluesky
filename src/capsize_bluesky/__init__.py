@@ -6,7 +6,7 @@ from capsize_bluesky.exceptions import (
     BlueskyAuthError,
     BlueskyError,
 )
-from capsize_bluesky.models import PostRecord, ProfileStats
+from capsize_bluesky.models import PostRecord, ProfileStats, RepostRecord
 
 __all__ = [
     "DEFAULT_SERVICE",
@@ -16,4 +16,5 @@ __all__ = [
     "BlueskyError",
     "PostRecord",
     "ProfileStats",
+    "RepostRecord",
 ]
