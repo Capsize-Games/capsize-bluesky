@@ -6,7 +6,7 @@ between calls and when to log in again; this class only ever holds one live
 session in memory for as long as the caller keeps the instance around.
 """
 
-from atproto import Client
+from atproto import Client, models
 from atproto_client.exceptions import AtProtocolError, UnauthorizedError
 from atproto_client.models.app.bsky.actor.defs import ProfileViewDetailed
 from atproto_client.models.com.atproto.repo.get_record import (
@@ -226,3 +226,63 @@ class BlueskyAccountClient:
         except AtProtocolError as exc:
             raise BlueskyAPIError(str(exc)) from exc
         return str(response.did)
+
+    def _existing_profile_fields(self, did: str) -> dict[str, object]:
+        """Return the existing profile record's fields as a plain dict.
+
+        `get_record`'s `.value` is untyped (the SDK returns it as
+        `Any`, not a parsed `AppBskyActorProfile.Record`) - reading it
+        defensively via both attribute and dict-style access covers
+        either shape rather than assuming one.
+        """
+        try:
+            existing = self._client.com.atproto.repo.get_record(
+                {
+                    "repo": did,
+                    "collection": "app.bsky.actor.profile",
+                    "rkey": "self",
+                }
+            )
+        except AtProtocolError:
+            return {}
+        value = existing.value
+        if isinstance(value, dict):
+            return dict(value)
+        fields = ("description", "display_name", "avatar", "banner")
+        return {
+            f: getattr(value, f, None) for f in fields if hasattr(value, f)
+        }
+
+    def update_profile(
+        self,
+        description: str | None = None,
+        display_name: str | None = None,
+    ) -> None:
+        """Update this account's own bio text and/or display name.
+
+        Reads the existing profile record first and only overwrites
+        the fields given here, so an existing avatar/banner (this
+        package doesn't touch image blobs) or any other field isn't
+        accidentally cleared by a partial update.
+        """
+        self._require_login()
+        did = self._resolve_target(None)
+        fields = self._existing_profile_fields(did)
+        if description is not None:
+            fields["description"] = description
+        if display_name is not None:
+            fields["display_name"] = display_name
+        record = models.AppBskyActorProfile.Record(
+            **{k: v for k, v in fields.items() if v is not None}
+        )
+        try:
+            self._client.com.atproto.repo.put_record(
+                {
+                    "repo": did,
+                    "collection": "app.bsky.actor.profile",
+                    "rkey": "self",
+                    "record": record,
+                }
+            )
+        except AtProtocolError as exc:
+            raise BlueskyAPIError(str(exc)) from exc

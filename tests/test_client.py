@@ -416,3 +416,64 @@ def test_resolve_handle(mock_client_cls: MagicMock) -> None:
 
     client = BlueskyAccountClient()
     assert client.resolve_handle("alice.bsky.social") == "did:plc:abc123"
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_sets_description(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.get_record.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    client.update_profile(description="new bio")
+
+    mock_client.com.atproto.repo.put_record.assert_called_once()
+    call_args = mock_client.com.atproto.repo.put_record.call_args[0][0]
+    assert call_args["repo"] == "did:plc:self"
+    assert call_args["collection"] == "app.bsky.actor.profile"
+    assert call_args["rkey"] == "self"
+    assert call_args["record"].description == "new bio"
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_preserves_existing_fields(
+    mock_client_cls: MagicMock,
+) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.get_record.return_value = MagicMock(
+        value={"description": "old bio", "display_name": "Old Name"}
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    client.update_profile(description="new bio")
+
+    call_args = mock_client.com.atproto.repo.put_record.call_args[0][0]
+    assert call_args["record"].description == "new bio"
+    assert call_args["record"].display_name == "Old Name"
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_requires_login(mock_client_cls: MagicMock) -> None:
+    mock_client_cls.return_value = MagicMock()
+    client = BlueskyAccountClient()
+    with pytest.raises(BlueskyAuthError):
+        client.update_profile(description="new bio")
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_profile_wraps_api_errors(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.me.did = "did:plc:self"
+    mock_client.com.atproto.repo.get_record.side_effect = BadRequestError()
+    mock_client.com.atproto.repo.put_record.side_effect = BadRequestError()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    with pytest.raises(BlueskyAPIError):
+        client.update_profile(description="new bio")
