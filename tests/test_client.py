@@ -477,3 +477,39 @@ def test_update_profile_wraps_api_errors(mock_client_cls: MagicMock) -> None:
     client.login("alice.bsky.social", "app-password")
     with pytest.raises(BlueskyAPIError):
         client.update_profile(description="new bio")
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_handle_sends_new_handle(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    client.update_handle("alice.example.com")
+
+    mock_client.com.atproto.identity.update_handle.assert_called_once_with(
+        {"handle": "alice.example.com"}
+    )
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_handle_requires_login(mock_client_cls: MagicMock) -> None:
+    mock_client_cls.return_value = MagicMock()
+    client = BlueskyAccountClient()
+    with pytest.raises(BlueskyAuthError):
+        client.update_handle("alice.example.com")
+
+
+@patch("capsize_bluesky.client.Client")
+def test_update_handle_wraps_api_errors(mock_client_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.com.atproto.identity.update_handle.side_effect = (
+        BadRequestError()
+    )
+    mock_client_cls.return_value = mock_client
+
+    client = BlueskyAccountClient()
+    client.login("alice.bsky.social", "app-password")
+    with pytest.raises(BlueskyAPIError):
+        client.update_handle("alice.example.com")

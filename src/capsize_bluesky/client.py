@@ -227,6 +227,22 @@ class BlueskyAccountClient:
             raise BlueskyAPIError(str(exc)) from exc
         return str(response.did)
 
+    def update_handle(self, handle: str) -> None:
+        """Switch this account's own handle (e.g. to a custom domain).
+
+        The caller is responsible for having already published the
+        domain-verification DNS record this account's PDS requires -
+        this only calls the AT Protocol identity update itself, it
+        doesn't check or wait for DNS.
+        """
+        self._require_login()
+        try:
+            self._client.com.atproto.identity.update_handle(
+                {"handle": handle}
+            )
+        except AtProtocolError as exc:
+            raise BlueskyAPIError(str(exc)) from exc
+
     def _existing_profile_fields(self, did: str) -> dict[str, object]:
         """Return the existing profile record's fields as a plain dict.
 
