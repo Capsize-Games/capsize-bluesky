@@ -16,6 +16,20 @@ from capsize_bluesky.models import ProfileStats
 DEFAULT_SERVICE = "https://bsky.social"
 
 
+def _authenticate(
+    client: Client, handle: str, app_password: str
+) -> ProfileViewDetailed | None:
+    """Log `client` in, translating atproto's exceptions on the way."""
+    try:
+        return client.login(handle, app_password)
+    except UnauthorizedError as exc:
+        raise BlueskyAuthError(
+            f"Invalid handle or app password for {handle!r}"
+        ) from exc
+    except AtProtocolError as exc:
+        raise BlueskyAPIError(str(exc)) from exc
+
+
 def _to_profile_stats(profile: ProfileViewDetailed) -> ProfileStats:
     return ProfileStats(
         did=profile.did,
@@ -40,24 +54,12 @@ class BlueskyAccountClient:
     ) -> ProfileStats | None:
         """Authenticate with an app password, not the account's password.
 
-        Returns the account's own profile stats, since the PDS includes
-        them in the login response by default — callers that only need
-        did/handle/counts right after logging in can skip a second
-        `profile_stats()` round-trip. Returns None only if the PDS omits
-        the profile (never happens with default settings).
-
-        Raises BlueskyAuthError if the handle/app-password pair is
-        rejected, or BlueskyAPIError for any other failure (network,
-        rate limit, ...).
+        Returns the account's own profile stats, included in the PDS's
+        login response by default — skips a second `profile_stats()`
+        round-trip. Raises `BlueskyAuthError`/`BlueskyAPIError`; see
+        `_authenticate`.
         """
-        try:
-            profile = self._client.login(handle, app_password)
-        except UnauthorizedError as exc:
-            raise BlueskyAuthError(
-                f"Invalid handle or app password for {handle!r}"
-            ) from exc
-        except AtProtocolError as exc:
-            raise BlueskyAPIError(str(exc)) from exc
+        profile = _authenticate(self._client, handle, app_password)
         self._logged_in = True
         return _to_profile_stats(profile) if profile else None
 
